@@ -145,6 +145,8 @@ pub struct MuseDevice {
     /// • macOS / Windows — a UUID string
     /// • Linux — a Bluetooth MAC address (`AA:BB:CC:DD:EE:FF`)
     pub id: String,
+    /// Last known signal strength in dBm, if available.
+    pub rssi: Option<i16>,
     pub(crate) peripheral: Peripheral,
     /// The adapter that discovered this device.  Kept so that
     /// [`MuseClient::connect_to`] can listen for disconnect events on the
@@ -285,8 +287,9 @@ impl MuseClient {
                 if let Some(name) = props.local_name {
                     if name.starts_with(&self.config.name_prefix) {
                         let id = p.id().to_string();
+                        let rssi = props.rssi;
                         info!("scan_all: found {name}  id={id}");
-                        found.push(MuseDevice { name, id, peripheral: p, adapter: adapter.clone() });
+                        found.push(MuseDevice { name, id, rssi, peripheral: p, adapter: adapter.clone() });
                     }
                 }
             }
@@ -372,9 +375,18 @@ impl MuseClient {
         // Hard timeout on connect(): BlueZ's org.bluez.Device1.Connect can block
         // forever when the device is out of range or the stack is in a bad state.
         // Ten seconds is generous for a BLE connection that typically takes <2 s.
-        tokio::time::timeout(Duration::from_secs(10), peripheral.connect())
-            .await
-            .map_err(|_| anyhow!("BLE connect() timed out after 10 s"))??;
+        let connect_result = tokio::time::timeout(Duration::from_secs(10), peripheral.connect()).await;
+        match connect_result {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => return Err(e.into()),
+            Err(_) => {
+                // Timeout: the D-Bus Connect call may still be in flight.
+                // Best-effort cleanup to avoid "In Progress" on next attempt.
+                let _ = peripheral.disconnect().await;
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                return Err(anyhow!("BLE connect() timed out after 10 s"));
+            }
+        }
 
         // On Linux (bluez-async / D-Bus) the BLE stack signals connection
         // completion before the remote GATT service cache is populated.
@@ -838,21 +850,28 @@ impl MuseHandle {
             // Firmware needs ~2 s to settle before packets arrive.
             delay(2100).await;
             Ok(())
-        } else {
-            // Classic startup
-            self.pause().await?;
-            let preset = if enable_ppg {
-                "p50"
-            } else if enable_aux {
-                "p20"
             } else {
-                "p21"
-            };
-            self.send_command("s").await?;
-            self.send_command(preset).await?;
-            self.resume().await?;
-            Ok(())
-        }
+                // Classic startup
+                self.pause().await?;
+                let preset = if enable_ppg {
+                    "p50"
+                } else if enable_aux {
+                    "p20"
+                } else {
+                    "p21"
+                };
+                let delay = |ms| tokio::time::sleep(Duration::from_millis(ms));
+                self.send_command("h").await?;
+                delay(150).await;
+                self.send_command("s").await?;
+                delay(150).await;
+                self.send_command(preset).await?;
+                delay(150).await;
+                self.send_command("d").await?;
+                delay(300).await;
+                self.resume().await?;
+                Ok(())
+            }
     }
 
     /// Request firmware / hardware info (`v1` command).
