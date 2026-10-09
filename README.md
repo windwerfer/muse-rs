@@ -72,7 +72,7 @@ One dedicated GATT characteristic per sensor:
 
 **EEG scale:** `µV = 0.48828125 × (raw₁₂ − 2048)`
 
-**Startup sequence:** `h` → `s` → preset (`p21` / `p20` / `p50`) → `d`
+**Startup sequence:** `h` → `s` → preset (`p21` or `p50`) → `d`
 
 **Resume command:** `d`
 
@@ -440,9 +440,15 @@ let config = MuseClientConfig {
 
 | `enable_ppg` | `enable_aux` | Preset sent (Classic) | Preset sent (Athena) |
 |---|---|---|---|
-| false | false | `p21` (EEG only) | `p1045` |
-| false | true | `p20` (EEG + AUX) | `p1045` |
-| true | — | `p50` (EEG + PPG) | `p1045` |
+| false | false | `p21` (4 EEG; 5th channel off) | `p1045` |
+| false | true | `p20` (not the AUX preset) | `p1045` |
+| true | either | `p50` (5th EEG on, and PPG) | `p1045` |
+
+`enable_aux` only subscribes to characteristic `273e0007`. The headset
+emits that 5th EEG channel on preset `p50`. `p21` leaves it silent. `p20`
+is not the AUX preset (BrainFlow `SupportedBoards.rst` / `muse.cpp`). On
+Muse S, PPG alone is `p61`. BrainFlow's auxiliary preset is
+accelerometer and gyroscope, not this electrode.
 
 > Athena always uses `p1045` regardless of PPG/AUX flags; all sensors
 > (EEG, PPG, IMU, battery) are streamed on the multiplexed characteristic.

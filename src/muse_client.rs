@@ -162,17 +162,19 @@ pub struct MuseDevice {
 /// Fields that are firmware-specific are noted below.
 #[derive(Debug, Clone)]
 pub struct MuseClientConfig {
-    /// Subscribe to the AUX (5th) EEG channel.
+    /// Subscribe to the AUX (5th) EEG channel (`273e0007`).
     ///
-    /// **Classic firmware only** — changes the startup preset from `p21` to `p20`.
-    /// Has no effect on Athena firmware (`p1045` is always used).
+    /// **Classic firmware only.** This flag is the GATT subscription. It does
+    /// not select preset `p20`. The headset emits the 5th channel on `p50`;
+    /// `p21` leaves it off. No effect on Athena (`p1045` is always used).
     /// Default: `false`.
     pub enable_aux: bool,
     /// Subscribe to the three PPG (optical heart-rate) channels.
     ///
-    /// **Classic firmware only** — changes the startup preset to `p50`.
-    /// Has no effect on Athena firmware; Athena optical data is received but
-    /// not yet decoded into [`crate::types::MuseEvent::Ppg`].
+    /// **Classic firmware only.** When set, startup sends `p50` (5th EEG
+    /// channel on, and PPG). Muse S PPG alone is `p61`. No effect on Athena
+    /// firmware; Athena optical data is received but not yet decoded into
+    /// [`crate::types::MuseEvent::Ppg`].
     /// Default: `false`.
     pub enable_ppg: bool,
     /// BLE scan duration in seconds before giving up. Default: `15`.
@@ -808,9 +810,12 @@ impl MuseHandle {
     ///
     /// | `enable_ppg` | `enable_aux` | Preset |
     /// |---|---|---|
-    /// | false | false | `p21` (EEG only) |
-    /// | false | true  | `p20` (EEG + AUX) |
-    /// | true  | —     | `p50` (EEG + PPG) |
+    /// | false | false | `p21` (4 EEG; 5th channel off) |
+    /// | false | true  | `p20` (not the AUX preset) |
+    /// | true  | either | `p50` (5th EEG on, and PPG) |
+    ///
+    /// `enable_aux` only subscribes to `273e0007`. The 5th EEG channel is
+    /// emitted on `p50`, not on `p20`.
     ///
     /// # Athena startup sequence
     ///
