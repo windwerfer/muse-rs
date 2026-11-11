@@ -69,3 +69,8 @@ crossterm = { version = "0.29", optional = true }
 
 [patch.crates-io]
 btleplug = { git = "https://github.com/windwerfer/btleplug.git", tag = "0.13.4-muse-1" }
+
+# Rust 1.99 clippy; these fire on pre-existing parser/logging loops.
+[lints.clippy]
+manual_is_multiple_of = "allow"
+chunks_exact_to_as_chunks = "allow"

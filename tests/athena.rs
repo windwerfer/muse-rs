@@ -13,7 +13,7 @@ use muse_rs::types::{MuseEvent, OpticsLayout, Sensor};
 
 fn pack_uint_le(values: &[u32], bit_width: usize) -> Vec<u8> {
     let n_bits = values.len() * bit_width;
-    let mut bytes = vec![0u8; (n_bits + 7) / 8];
+    let mut bytes = vec![0u8; n_bits.div_ceil(8)];
     for (i, &val) in values.iter().enumerate() {
         for bit in 0..bit_width {
             if (val >> bit) & 1 != 0 {
@@ -39,9 +39,7 @@ fn packet(tag: u8, counter: u8, payload: &[u8]) -> Vec<u8> {
 
 fn optics_values(n_ch: usize, n_samp: usize) -> Vec<u32> {
     // sample-major: lane i, sample s → 0x10000 * i + s
-    (0..n_samp)
-        .flat_map(|s| (0..n_ch).map(move |ch| (0x10000 * ch + s) as u32))
-        .collect()
+    (0..n_samp).flat_map(|s| (0..n_ch).map(move |ch| (0x10000 * ch + s) as u32)).collect()
 }
 
 fn optics_events(events: &[MuseEvent]) -> Vec<(usize, u16, Vec<u32>, OpticsLayout)> {
@@ -55,10 +53,7 @@ fn optics_events(events: &[MuseEvent]) -> Vec<(usize, u16, Vec<u32>, OpticsLayou
 }
 
 fn assert_no_ppg(events: &[MuseEvent]) {
-    assert!(
-        events.iter().all(|e| !matches!(e, MuseEvent::Ppg(_))),
-        "Athena must not emit Classic Ppg"
-    );
+    assert!(events.iter().all(|e| !matches!(e, MuseEvent::Ppg(_))), "Athena must not emit Classic Ppg");
 }
 
 #[test]
@@ -68,18 +63,11 @@ fn optics4_decodes_all_four_lanes() {
     let got = optics_events(&ev);
     assert_no_ppg(&ev);
     assert_eq!(got.len(), 4, "the old parser kept only 3 of 4 lanes");
-    for ch in 0..4 {
-        assert_eq!(got[ch].0, ch);
-        assert_eq!(got[ch].1, 7);
-        assert_eq!(
-            got[ch].2,
-            vec![
-                0x10000 * ch as u32,
-                0x10000 * ch as u32 + 1,
-                0x10000 * ch as u32 + 2
-            ]
-        );
-        assert_eq!(got[ch].3, OpticsLayout::Ch4);
+    for (ch, g) in got.iter().enumerate() {
+        assert_eq!(g.0, ch);
+        assert_eq!(g.1, 7);
+        assert_eq!(g.2, vec![0x10000 * ch as u32, 0x10000 * ch as u32 + 1, 0x10000 * ch as u32 + 2]);
+        assert_eq!(g.3, OpticsLayout::Ch4);
     }
     assert!(ev.iter().all(|e| !matches!(e, MuseEvent::Eeg(_))));
 }
@@ -91,13 +79,10 @@ fn optics8_decodes_all_eight_lanes() {
     let got = optics_events(&ev);
     assert_no_ppg(&ev);
     assert_eq!(got.len(), 8);
-    for ch in 0..8 {
-        assert_eq!(got[ch].0, ch);
-        assert_eq!(
-            got[ch].2,
-            vec![0x10000 * ch as u32, 0x10000 * ch as u32 + 1]
-        );
-        assert_eq!(got[ch].3, OpticsLayout::Ch8);
+    for (ch, g) in got.iter().enumerate() {
+        assert_eq!(g.0, ch);
+        assert_eq!(g.2, vec![0x10000 * ch as u32, 0x10000 * ch as u32 + 1]);
+        assert_eq!(g.3, OpticsLayout::Ch8);
     }
 }
 
@@ -115,8 +100,8 @@ fn optics16_is_decoded_not_skipped() {
         assert_eq!(
             optics_channel_name(ch),
             [
-                "ambient", "infrared", "red", "opt3", "opt4", "opt5", "opt6", "opt7", "opt8",
-                "opt9", "opt10", "opt11", "opt12", "opt13", "opt14", "opt15"
+                "ambient", "infrared", "red", "opt3", "opt4", "opt5", "opt6", "opt7", "opt8", "opt9", "opt10", "opt11", "opt12", "opt13",
+                "opt14", "opt15"
             ][ch]
         );
     }
@@ -143,10 +128,7 @@ fn splits_notifications_holding_several_packets() {
     let a = packet(0x34, 0, &pack_uint_le(&optics_values(4, 3), 20));
     let b = packet(0x36, 1, &pack_uint_le(&optics_values(16, 1), 20));
     let joined: Vec<u8> = [a.clone(), b.clone()].concat();
-    let apart: Vec<_> = parse_athena_notification(&a)
-        .into_iter()
-        .chain(parse_athena_notification(&b))
-        .collect();
+    let apart: Vec<_> = parse_athena_notification(&a).into_iter().chain(parse_athena_notification(&b)).collect();
     let together = parse_athena_notification(&joined);
     assert_eq!(optics_events(&together), optics_events(&apart));
     assert_eq!(optics_events(&together).len(), 4 + 16);
@@ -167,14 +149,8 @@ fn header_bytes_are_not_taken_for_tags() {
     };
     let joined = [packet(0), packet(1)].concat();
     let ev = parse_athena_notification(&joined);
-    let accel = ev
-        .iter()
-        .filter(|e| matches!(e, MuseEvent::Accelerometer(_)))
-        .count();
-    let gyro = ev
-        .iter()
-        .filter(|e| matches!(e, MuseEvent::Gyroscope(_)))
-        .count();
+    let accel = ev.iter().filter(|e| matches!(e, MuseEvent::Accelerometer(_))).count();
+    let gyro = ev.iter().filter(|e| matches!(e, MuseEvent::Gyroscope(_))).count();
     let eeg = ev.iter().filter(|e| matches!(e, MuseEvent::Eeg(_))).count();
     assert_eq!((eeg, accel, gyro), (0, 2, 2));
 }
@@ -209,11 +185,7 @@ fn decoder_reports_an_optical_gap() {
     let mut decoder = AthenaDecoder::new();
     let a = packet(0x36, 107, &pack_uint_le(&optics_values(16, 1), 20));
     let b = packet(0x36, 110, &pack_uint_le(&optics_values(16, 1), 20));
-    let ev: Vec<_> = decoder
-        .decode(&a)
-        .into_iter()
-        .chain(decoder.decode(&b))
-        .collect();
+    let ev: Vec<_> = decoder.decode(&a).into_iter().chain(decoder.decode(&b)).collect();
     let gaps: Vec<_> = ev
         .iter()
         .filter_map(|e| match e {
