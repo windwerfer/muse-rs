@@ -24,6 +24,7 @@ async fn main() -> Result<()> {
         enable_ppg: true,
         scan_timeout_secs: 15,
         name_prefix: "Muse".into(),
+        ..Default::default()
     };
 
     let enable_ppg = config.enable_ppg;
@@ -143,6 +144,15 @@ async fn main() -> Result<()> {
                 println!(
                     "[PPG] ch={ch_name:8} idx={:5}  ts={:.0} ms  sample[0]={first}",
                     reading.index, reading.timestamp
+                );
+            }
+
+            MuseEvent::Optics(reading) => {
+                let ch_name = muse_rs::protocol::optics_channel_name(reading.lane);
+                let first = reading.samples.first().copied().unwrap_or(0);
+                println!(
+                    "[OPTICS] {:?} lane={ch_name:8} idx={:5}  sample[0]={first}",
+                    reading.layout, reading.index
                 );
             }
 

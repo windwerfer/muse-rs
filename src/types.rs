@@ -56,25 +56,88 @@ pub struct EegReading {
 /// 24-bit samples at 64 Hz.
 #[derive(Debug, Clone)]
 pub struct PpgReading {
-    /// Sequential packet index, as for [`EegReading::index`]: 16-bit on
-    /// Classic, the 8-bit optical subpacket counter on Athena.
+    /// Sequential packet index (16-bit, Classic GATT notifications).
     pub index: u16,
-    /// Optical channel.
+    /// Optical channel: 0 = ambient, 1 = infrared, 2 = red.
     ///
-    /// * 0 = ambient (background light subtraction)
-    /// * 1 = infrared
-    /// * 2 = red
-    ///
-    /// **Classic** stops there. **Athena** carries four, eight or sixteen
-    /// channels depending on the preset, and every one of them is reported —
-    /// see [`crate::protocol::ppg_channel_name`]. The roles of the channels
-    /// past `red` are not documented, so they are named by index; they do
-    /// carry real signal.
+    /// Classic only. Athena optical data is emitted as [`OpticsReading`],
+    /// never as `PpgReading`.
     pub ppg_channel: usize,
     /// Wall-clock timestamp in milliseconds since Unix epoch for the first sample.
     pub timestamp: f64,
     /// Raw 24-bit ADC values (not scaled to physical units).
     /// 6 samples per notification at 64 Hz.
+    pub samples: Vec<u32>,
+}
+
+/// How many optical lanes an Athena preset is streaming.
+///
+/// Selected by the firmware preset (see [`crate::protocol::athena_preset_layout`]).
+/// Labels for the lanes are [`crate::protocol::optics_channel_name`]; they are
+/// names, not measured wavelengths.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum OpticsLayout {
+    /// Tag `0x34`: 4 lanes × 3 samples (e.g. `p1045`).
+    Ch4,
+    /// Tag `0x35`: 8 lanes × 2 samples (e.g. `p1044`).
+    Ch8,
+    /// Tag `0x36`: 16 lanes × 1 sample (e.g. `p1041`, the default).
+    Ch16,
+}
+
+impl OpticsLayout {
+    /// Layout carried by an Athena optical tag, if this is one.
+    pub fn from_tag(tag: u8) -> Option<Self> {
+        match tag {
+            0x34 => Some(Self::Ch4),
+            0x35 => Some(Self::Ch8),
+            0x36 => Some(Self::Ch16),
+            _ => None,
+        }
+    }
+
+    pub fn channel_count(self) -> usize {
+        match self {
+            Self::Ch4 => 4,
+            Self::Ch8 => 8,
+            Self::Ch16 => 16,
+        }
+    }
+
+    pub fn samples_per_packet(self) -> usize {
+        match self {
+            Self::Ch4 => 3,
+            Self::Ch8 => 2,
+            Self::Ch16 => 1,
+        }
+    }
+
+    /// A representative 8-EEG-channel preset that selects this layout.
+    pub fn preset(self) -> &'static str {
+        match self {
+            Self::Ch4 => "p1045",
+            Self::Ch8 => "p1044",
+            Self::Ch16 => "p1041",
+        }
+    }
+}
+
+/// One lane of an Athena optical (fNIRS-style) packet.
+///
+/// Athena only. Values are raw 20-bit ADC counts, not a derived PPG, HR or
+/// SpO₂ reading and not a calibrated wavelength.
+#[derive(Debug, Clone)]
+pub struct OpticsReading {
+    /// The optical subpacket counter (8-bit).
+    pub index: u16,
+    pub layout: OpticsLayout,
+    /// Lane index in `0 .. layout.channel_count()`.
+    /// See [`crate::protocol::optics_channel_name`].
+    pub lane: usize,
+    /// Wall-clock timestamp in milliseconds since Unix epoch for the first sample.
+    /// Athena packets do not carry a usable sample clock here; often `0.0`.
+    pub timestamp: f64,
+    /// Raw 20-bit ADC counts, oldest first. Length is `layout.samples_per_packet()`.
     pub samples: Vec<u32>,
 }
 
@@ -241,7 +304,8 @@ impl ControlResponse {
 /// |---|---|---|
 /// | `Eeg` (ch 0–3) | ✓ | ✓ |
 /// | `Eeg` (ch 4–7) | ✗ | ✓ |
-/// | `Ppg` | ✓ (opt-in) | ✓ |
+/// | `Ppg` | ✓ (opt-in) | ✗ |
+/// | `Optics` | ✗ | ✓ |
 /// | `Accelerometer` | ✓ | ✓ |
 /// | `Gyroscope` | ✓ | ✓ |
 /// | `Telemetry` | ✓ | ✓ |
@@ -260,12 +324,16 @@ pub enum MuseEvent {
     /// Channels 4–7 (FPz, AUX\_R, AUX\_L, AUX) are Athena-only.
     /// See [`EegReading`] for per-firmware format differences.
     Eeg(EegReading),
-    /// A PPG (photoplethysmography) optical packet.
+    /// A Classic PPG (photoplethysmography) packet.
     ///
-    /// Classic sends these only with `enable_ppg: true`. Athena always
-    /// does: every Athena preset carries optical data, and `enable_ppg` picks
-    /// how many channels — see [`crate::muse_client::MuseHandle::start`].
+    /// Classic sends these only with `enable_ppg: true`. Athena never emits
+    /// this variant: its optical stream is [`MuseEvent::Optics`].
     Ppg(PpgReading),
+    /// An Athena optical (fNIRS-style) packet, one event per lane.
+    ///
+    /// 4, 8 or 16 lanes at 64 Hz depending on the preset. Default startup is
+    /// `p1041` (16 lanes). See [`OpticsReading`].
+    Optics(OpticsReading),
     /// Battery and housekeeping telemetry (~1 Hz).
     ///
     /// Produced by both Classic and Athena; some fields are `0` on Athena.

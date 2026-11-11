@@ -143,11 +143,42 @@ pub fn eeg_channel_name(electrode: usize, is_athena: bool) -> &'static str {
 }
 
 /// The optical channel name for `channel`, in any mode.
+///
+/// For Classic PPG this is the three [`PPG_CHANNEL_NAMES`]. For Athena lanes
+/// prefer [`optics_channel_name`].
 pub fn ppg_channel_name(channel: usize) -> &'static str {
     ATHENA_PPG_CHANNEL_NAMES
         .get(channel)
         .copied()
         .unwrap_or("?")
+}
+
+/// Labels for Athena optical lanes (same strings as [`ATHENA_PPG_CHANNEL_NAMES`]).
+///
+/// These are names, not measured wavelengths. Lanes past `red` are numbered
+/// because no source this crate can cite documents their physical mapping.
+pub const OPTICS_CHANNEL_NAMES: [&str; 16] = ATHENA_PPG_CHANNEL_NAMES;
+
+/// The Athena optical lane name for `lane` (`0..15`), or `"?"`.
+pub fn optics_channel_name(lane: usize) -> &'static str {
+    OPTICS_CHANNEL_NAMES.get(lane).copied().unwrap_or("?")
+}
+
+/// Default Athena startup preset: 8-channel EEG + 16-channel optics.
+pub const ATHENA_DEFAULT_PRESET: &str = "p1041";
+
+/// Optical layout selected by a known Athena preset, if this is one.
+///
+/// Measured on a Muse S Athena (fw 3.1.11 / 3.1.19). Presets that share a
+/// row differ in ways not visible from which tags arrive.
+pub fn athena_preset_layout(preset: &str) -> Option<crate::types::OpticsLayout> {
+    use crate::types::OpticsLayout;
+    match preset {
+        "p1029" | "p102A" | "p1035" | "p1036" | "p1045" | "p1046" => Some(OpticsLayout::Ch4),
+        "p1027" | "p1028" | "p1033" | "p1034" | "p1043" | "p1044" => Some(OpticsLayout::Ch8),
+        "p1025" | "p1026" | "p1031" | "p1032" | "p1041" | "p1042" => Some(OpticsLayout::Ch16),
+        _ => None,
+    }
 }
 
 // ── Athena-specific constants ─────────────────────────────────────────────────

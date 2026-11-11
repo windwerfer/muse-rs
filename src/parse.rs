@@ -28,7 +28,7 @@
 //! |---|---|---|
 //! | `0x11`, `0x12` | EEG (8 ch) | 14-bit LE packed, 2 samples/ch, 0.0885 µV/LSB |
 //! | `0x47` | IMU | i16 LE, accel +0.0000610352 g/LSB, gyro −0.0074768 °/s/LSB |
-//! | `0x34`–`0x36` | Optical/PPG | 20-bit LE, 4, 8 or 16 ch, 64 Hz |
+//! | `0x34`–`0x36` | Optical | 20-bit LE, 4, 8 or 16 lanes, 64 Hz → `Optics` |
 //! | `0x53` | DRL/REF | u16 LE, 2 ch × 6 samples |
 //! | `0x88`, `0x98` | Battery | u16 LE ÷ 256 |
 //!
@@ -39,8 +39,8 @@ use std::collections::BTreeMap;
 
 use crate::protocol::ATHENA_EEG_SCALE;
 use crate::types::{
-    DataGap, DrlRefData, EegReading, ImuData, MuseEvent, PpgReading, Sensor, TelemetryData,
-    XyzSample,
+    DataGap, DrlRefData, EegReading, ImuData, MuseEvent, OpticsLayout, OpticsReading, PpgReading,
+    Sensor, TelemetryData, XyzSample,
 };
 
 // ── EEG ──────────────────────────────────────────────────────────────────────
@@ -515,19 +515,21 @@ fn push_athena_eeg(
 /// sample-major like EEG.
 fn push_athena_optical(
     payload: &[u8],
-    n_ch: usize,
-    n_samp: usize,
+    layout: OpticsLayout,
     index: u16,
     events: &mut Vec<MuseEvent>,
 ) {
+    let n_ch = layout.channel_count();
+    let n_samp = layout.samples_per_packet();
     let raw = parse_uint_le_bits(payload, 20);
     for ch in 0..n_ch {
         let samples: Vec<u32> = (0..n_samp)
             .filter_map(|s| raw.get(s * n_ch + ch).copied())
             .collect();
-        events.push(MuseEvent::Ppg(PpgReading {
+        events.push(MuseEvent::Optics(OpticsReading {
             index,
-            ppg_channel: ch,
+            layout,
+            lane: ch,
             timestamp: 0.0,
             samples,
         }));
@@ -546,8 +548,8 @@ fn decode_athena_subpacket(sp: &Subpacket<'_>, events: &mut Vec<MuseEvent>) {
         0x12 => push_athena_eeg(payload, 8, 2, index, events),
 
         // ── Optical ───────────────────────────────────────────────────────────
-        0x34 => push_athena_optical(payload, 4, 3, index, events),
-        0x35 => push_athena_optical(payload, 8, 2, index, events),
+        0x34 => push_athena_optical(payload, OpticsLayout::Ch4, index, events),
+        0x35 => push_athena_optical(payload, OpticsLayout::Ch8, index, events),
         // Confirmed against hardware: presets p1041 and p1042 select this
         // mode on fw 3.1.11. It used to be skipped outright, which is why
         // those two presets looked like they carried no optical data at all
@@ -559,7 +561,7 @@ fn decode_athena_subpacket(sp: &Subpacket<'_>, events: &mut Vec<MuseEvent>) {
         // seconds) and they fall into consecutive pairs. A wrong stride would
         // smear channels together and show every one of them swinging across
         // the whole range.
-        0x36 => push_athena_optical(payload, 16, 1, index, events),
+        0x36 => push_athena_optical(payload, OpticsLayout::Ch16, index, events),
 
         // ── IMU ───────────────────────────────────────────────────────────────
         // 36 bytes is eighteen i16 LE: three samples of accelerometer xyz
