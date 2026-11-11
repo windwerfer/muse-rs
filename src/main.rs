@@ -191,6 +191,8 @@ async fn main() -> Result<()> {
                     g.sensor, g.missing_packets, g.missing_samples
                 );
             }
+            // MuseEvent is #[non_exhaustive] (the CLI is a separate crate).
+            _ => {}
         }
     }
 
