@@ -171,10 +171,12 @@ pub struct MuseClientConfig {
     pub enable_aux: bool,
     /// Subscribe to the three PPG (optical heart-rate) channels.
     ///
-    /// **Classic firmware only.** When set, startup sends `p50` (5th EEG
-    /// channel on, and PPG). Muse S PPG alone is `p61`. No effect on Athena
-    /// firmware; Athena optical data is received but not yet decoded into
-    /// [`crate::types::MuseEvent::Ppg`].
+    /// **Classic firmware only** for the GATT subscription and preset: when
+    /// set, startup sends `p50` (5th EEG channel on, and PPG). Muse S PPG
+    /// alone is `p61`. Athena always carries optical data (this crate's
+    /// default Athena preset is still `p1045`, 4 channels) and every lane
+    /// is decoded into [`crate::types::MuseEvent::Ppg`] — 4, 8 or 16
+    /// channels depending on the preset.
     /// Default: `false`.
     pub enable_ppg: bool,
     /// BLE scan duration in seconds before giving up. Default: `15`.

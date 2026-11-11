@@ -180,6 +180,17 @@ async fn main() -> Result<()> {
                     println!("[CONTROL] {}", resp.raw);
                 }
             }
+
+            // Athena-only streams added when porting eugenehp 0.2.3 parse.rs.
+            MuseEvent::DrlRef(d) => {
+                println!("[DRL/REF] idx={:5}  samples={}", d.index, d.samples.len());
+            }
+            MuseEvent::Gap(g) => {
+                println!(
+                    "[GAP] {:?}  missing_packets={}  missing_samples={}",
+                    g.sensor, g.missing_packets, g.missing_samples
+                );
+            }
         }
     }
 
