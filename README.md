@@ -1,5 +1,7 @@
 # muse-rs
 
+[![Scanned by SonarCloud](https://img.shields.io/badge/Scanned_by-SonarCloud-4b9fd5?style=flat-square&logo=sonarqubecloud&logoColor=white)](https://sonarcloud.io/project/overview?id=windwerfer_muse-rs) [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=windwerfer_muse-rs&metric=alert_status)](https://sonarcloud.io/project/overview?id=windwerfer_muse-rs)
+
 A Rust library and terminal UI for streaming real-time sensor data from
 **Interaxon Muse EEG headsets** over Bluetooth Low Energy.
 
@@ -609,6 +611,14 @@ If you use `muse-rs` in academic research or published work, please cite it as:
 ### IEEE
 
 > E. Hauptmann, "muse-rs: Rust Library and TUI for Muse EEG Headsets," 2026. [Online]. Available: https://github.com/eugenehp/muse-rs
+
+## Security
+
+[SonarQube Cloud](https://sonarcloud.io/project/overview?id=windwerfer_muse-rs) runs automatic analysis on the `main` branch
+(bugs, vulnerabilities, code smells, security hotspots). The free plan analyzes only the main branch.
+This is static analysis, not a guarantee that the code is free of security issues.
+
+Please report vulnerabilities privately by email to windwerfer@gmail.com, not in public issues.
 
 ---
 
