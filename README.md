@@ -614,8 +614,9 @@ If you use `muse-rs` in academic research or published work, please cite it as:
 
 ## Security
 
-[SonarQube Cloud](https://sonarcloud.io/project/overview?id=windwerfer_muse-rs) runs automatic analysis on the `main` branch
-(bugs, vulnerabilities, code smells, security hotspots). The free plan analyzes only the main branch.
+[SonarQube Cloud](https://sonarcloud.io/project/overview?id=windwerfer_muse-rs) CI analysis (`.github/workflows/sonarcloud.yml`) runs on every push to `main` and on pull requests,
+with Clippy and coverage imported (bugs, vulnerabilities, code smells, security hotspots). The free plan analyzes no other
+branches, and only pull requests that target `main`.
 This is static analysis, not a guarantee that the code is free of security issues.
 
 Please report vulnerabilities privately by email to windwerfer@gmail.com, not in public issues.
