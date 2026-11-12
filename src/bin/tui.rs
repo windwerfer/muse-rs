@@ -1255,13 +1255,12 @@ async fn main() -> Result<()> {
     // Set RUST_LOG=debug for verbose BLE diagnostics, e.g.:
     //   RUST_LOG=debug cargo run --bin tui
     // Logs are written to muse-tui.log in the current directory.
-    {
-        use std::fs::File;
-        if let Ok(file) = File::create("muse-tui.log") {
-            env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
-                .target(env_logger::Target::Pipe(Box::new(file)))
-                .init();
-        }
+    // Created with tokio::fs: this runs inside the async runtime (rust:S7493).
+    if let Ok(file) = tokio::fs::File::create("muse-tui.log").await {
+        let file = file.into_std().await;
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+            .target(env_logger::Target::Pipe(Box::new(file)))
+            .init();
     }
 
     let simulate = std::env::args().any(|a| a == "--simulate");
