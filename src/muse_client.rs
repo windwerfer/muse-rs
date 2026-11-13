@@ -12,14 +12,14 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::parse::{
-    decode_eeg_samples, parse_accelerometer, parse_athena_notification, parse_gyroscope,
-    parse_ppg_reading, parse_telemetry, ControlAccumulator,
+    decode_eeg_samples, parse_accelerometer, parse_gyroscope, parse_ppg_reading, parse_telemetry,
+    AthenaDecoder, ControlAccumulator,
 };
 use crate::protocol::{
-    decode_response, encode_command, ACCELEROMETER_CHARACTERISTIC, ATHENA_SENSOR_CHARACTERISTIC,
-    CONTROL_CHARACTERISTIC, EEG_CHARACTERISTICS, EEG_FREQUENCY, EEG_SAMPLES_PER_READING,
-    GYROSCOPE_CHARACTERISTIC, PPG_CHARACTERISTICS, PPG_FREQUENCY, PPG_SAMPLES_PER_READING,
-    TELEMETRY_CHARACTERISTIC,
+    athena_preset_layout, decode_response, encode_command, ACCELEROMETER_CHARACTERISTIC,
+    ATHENA_DEFAULT_PRESET, ATHENA_SENSOR_CHARACTERISTIC, CONTROL_CHARACTERISTIC,
+    EEG_CHARACTERISTICS, EEG_FREQUENCY, EEG_SAMPLES_PER_READING, GYROSCOPE_CHARACTERISTIC,
+    PPG_CHARACTERISTICS, PPG_FREQUENCY, PPG_SAMPLES_PER_READING, TELEMETRY_CHARACTERISTIC,
 };
 use crate::types::{ControlResponse, EegReading, MuseEvent};
 
@@ -166,17 +166,24 @@ pub struct MuseClientConfig {
     ///
     /// **Classic firmware only.** This flag is the GATT subscription. It does
     /// not select preset `p20`. The headset emits the 5th channel on `p50`;
-    /// `p21` leaves it off. No effect on Athena (`p1045` is always used).
+    /// `p21` leaves it off. No effect on Athena (optics come from
+    /// [`Self::athena_preset`]).
     /// Default: `false`.
     pub enable_aux: bool,
-    /// Subscribe to the three PPG (optical heart-rate) channels.
+    /// Subscribe to the three Classic PPG (optical heart-rate) channels.
     ///
-    /// **Classic firmware only.** When set, startup sends `p50` (5th EEG
-    /// channel on, and PPG). Muse S PPG alone is `p61`. No effect on Athena
-    /// firmware; Athena optical data is received but not yet decoded into
-    /// [`crate::types::MuseEvent::Ppg`].
+    /// **Classic firmware only** for the GATT subscription and preset: when
+    /// set, startup sends `p50` (5th EEG channel on, and PPG). Muse S PPG
+    /// alone is `p61`. Athena ignores this flag: optical data always arrives
+    /// as [`crate::types::MuseEvent::Optics`], never as `Ppg`.
     /// Default: `false`.
     pub enable_ppg: bool,
+    /// Athena optical preset used by [`MuseHandle::start`].
+    ///
+    /// Default [`ATHENA_DEFAULT_PRESET`] (`p1041`, 16 lanes). Other measured
+    /// values include `p1044` (8 lanes) and `p1045` (4 lanes). Ignored on
+    /// Classic. See [`athena_preset_layout`].
+    pub athena_preset: String,
     /// BLE scan duration in seconds before giving up. Default: `15`.
     pub scan_timeout_secs: u64,
     /// Match devices whose advertised name starts with this string.
@@ -192,6 +199,7 @@ impl Default for MuseClientConfig {
         Self {
             enable_aux: false,
             enable_ppg: false,
+            athena_preset: ATHENA_DEFAULT_PRESET.into(),
             scan_timeout_secs: 15,
             name_prefix: "Muse".into(),
         }
@@ -291,7 +299,13 @@ impl MuseClient {
                         let id = p.id().to_string();
                         let rssi = props.rssi;
                         info!("scan_all: found {name}  id={id}");
-                        found.push(MuseDevice { name, id, rssi, peripheral: p, adapter: adapter.clone() });
+                        found.push(MuseDevice {
+                            name,
+                            id,
+                            rssi,
+                            peripheral: p,
+                            adapter: adapter.clone(),
+                        });
                     }
                 }
             }
@@ -352,7 +366,11 @@ impl MuseClient {
         );
         adapter.start_scan(ScanFilter::default()).await?;
         let peripheral = self
-            .find_first(&adapter, &self.config.name_prefix, self.config.scan_timeout_secs)
+            .find_first(
+                &adapter,
+                &self.config.name_prefix,
+                self.config.scan_timeout_secs,
+            )
             .await?;
         adapter.stop_scan().await.ok();
 
@@ -377,7 +395,8 @@ impl MuseClient {
         // Hard timeout on connect(): BlueZ's org.bluez.Device1.Connect can block
         // forever when the device is out of range or the stack is in a bad state.
         // Ten seconds is generous for a BLE connection that typically takes <2 s.
-        let connect_result = tokio::time::timeout(Duration::from_secs(10), peripheral.connect()).await;
+        let connect_result =
+            tokio::time::timeout(Duration::from_secs(10), peripheral.connect()).await;
         match connect_result {
             Ok(Ok(())) => {}
             Ok(Err(e)) => return Err(e.into()),
@@ -474,6 +493,7 @@ impl MuseClient {
                 };
                 info!("Athena: notification stream subscribed, waiting for data…");
                 let mut ctrl_acc = ControlAccumulator::new();
+                let mut decoder = AthenaDecoder::new();
                 let mut notif_count: u64 = 0;
                 let mut sensor_count: u64 = 0;
                 let mut eeg_event_count: u64 = 0;
@@ -506,8 +526,11 @@ impl MuseClient {
 
                     // All sensor data arrives on ATHENA_SENSOR_CHARACTERISTIC
                     sensor_count += 1;
-                    let events = parse_athena_notification(data);
-                    let n_eeg = events.iter().filter(|e| matches!(e, MuseEvent::Eeg(_))).count();
+                    let events = decoder.decode(data);
+                    let n_eeg = events
+                        .iter()
+                        .filter(|e| matches!(e, MuseEvent::Eeg(_)))
+                        .count();
                     eeg_event_count += n_eeg as u64;
 
                     if sensor_count <= 3 || sensor_count % 500 == 0 {
@@ -723,6 +746,7 @@ impl MuseClient {
             peripheral,
             control_char,
             is_athena,
+            athena_preset: self.config.athena_preset.clone(),
         };
 
         Ok((rx, handle))
@@ -768,6 +792,8 @@ pub struct MuseHandle {
     control_char: Characteristic,
     /// `true` when the connected device runs the Athena firmware (new Muse S).
     pub is_athena: bool,
+    /// Preset [`MuseHandle::start`] will send on Athena.
+    athena_preset: String,
 }
 
 impl MuseHandle {
@@ -819,64 +845,105 @@ impl MuseHandle {
     ///
     /// # Athena startup sequence
     ///
-    /// `v4` → `s` → `h` → `p1045` → `dc001` × 2 → `L1` → **2 s wait**
+    /// `v4` → `s` → `h` → *preset* → `dc001` × 2 → `d` → `L1` → **2 s wait**
     ///
-    /// The `enable_ppg` and `enable_aux` flags are ignored for Athena; the
-    /// firmware always uses preset `p1045`.  The 2-second wait at the end is
-    /// required by the Athena firmware before packets actually start flowing.
+    /// The default preset is [`ATHENA_DEFAULT_PRESET`] (`p1041`, 16 optical
+    /// lanes), taken from [`MuseClientConfig::athena_preset`]. `enable_ppg`
+    /// and `enable_aux` are ignored on Athena. Use
+    /// [`MuseHandle::start_athena_preset`] or [`MuseHandle::set_athena_preset`]
+    /// to choose 4- or 8-lane modes (`p1045`, `p1044`, …).
+    ///
+    /// The 2-second wait at the end is required by the Athena firmware before
+    /// packets actually start flowing.
     pub async fn start(&self, enable_ppg: bool, enable_aux: bool) -> Result<()> {
         if self.is_athena {
-            // Athena startup — mirrors MuseAthenaClient.start() in muse-jsx.
-            //
-            // Some Athena firmware versions (e.g. Muse S fw 3.x on
-            // Athena_RevE hardware) reject `dc001` (rc:69) but accept the
-            // Classic `d` command.  We send both so that streaming starts
-            // regardless of firmware version.  The device silently ignores
-            // whichever command it does not understand.
-            let delay = |ms| tokio::time::sleep(Duration::from_millis(ms));
-            self.send_command("v4").await?;
-            delay(100).await;
-            self.send_command("s").await?;
-            delay(100).await;
-            self.send_command("h").await?;
-            delay(100).await;
-            self.send_command("p1045").await?;
-            delay(100).await;
-            // Athena data-start: send dc001 twice (per TypeScript reference),
-            // then also send Classic `d` as fallback for fw 3.x which rejects
-            // dc001 with rc:69.
-            self.send_command("dc001").await?;
-            delay(50).await;
-            self.send_command("dc001").await?;
-            delay(50).await;
-            self.send_command("d").await?;
-            delay(100).await;
-            self.send_command("L1").await?;
-            // Firmware needs ~2 s to settle before packets arrive.
-            delay(2100).await;
-            Ok(())
+            self.run_athena_startup(&self.athena_preset).await
+        } else {
+            // Classic startup
+            self.pause().await?;
+            let preset = if enable_ppg {
+                "p50"
+            } else if enable_aux {
+                "p20"
             } else {
-                // Classic startup
-                self.pause().await?;
-                let preset = if enable_ppg {
-                    "p50"
-                } else if enable_aux {
-                    "p20"
-                } else {
-                    "p21"
-                };
-                let delay = |ms| tokio::time::sleep(Duration::from_millis(ms));
-                self.send_command("h").await?;
-                delay(150).await;
-                self.send_command("s").await?;
-                delay(150).await;
-                self.send_command(preset).await?;
-                delay(150).await;
-                self.send_command("d").await?;
-                delay(300).await;
-                self.resume().await?;
-                Ok(())
-            }
+                "p21"
+            };
+            let delay = |ms| tokio::time::sleep(Duration::from_millis(ms));
+            self.send_command("h").await?;
+            delay(150).await;
+            self.send_command("s").await?;
+            delay(150).await;
+            self.send_command(preset).await?;
+            delay(150).await;
+            self.send_command("d").await?;
+            delay(300).await;
+            self.resume().await?;
+            Ok(())
+        }
+    }
+
+    /// Full Athena startup with an explicit preset (`p1041`, `p1044`, `p1045`, …).
+    pub async fn start_athena_preset(&self, preset: &str) -> Result<()> {
+        if !self.is_athena {
+            return Err(anyhow!("start_athena_preset is for Athena firmware"));
+        }
+        self.run_athena_startup(preset).await
+    }
+
+    /// Switch the Athena optical preset after streaming has started.
+    ///
+    /// Sends `h` → *preset* → `dc001`/`d`. The preset must be one measured
+    /// in [`athena_preset_layout`].
+    pub async fn set_athena_preset(&self, preset: &str) -> Result<()> {
+        if !self.is_athena {
+            return Err(anyhow!("set_athena_preset is for Athena firmware"));
+        }
+        Self::require_athena_preset(preset)?;
+        let delay = |ms| tokio::time::sleep(Duration::from_millis(ms));
+        self.pause().await?;
+        delay(100).await;
+        self.send_command(preset).await?;
+        delay(100).await;
+        self.resume().await?;
+        Ok(())
+    }
+
+    fn require_athena_preset(preset: &str) -> Result<()> {
+        if athena_preset_layout(preset).is_none() {
+            return Err(anyhow!(
+                "unknown Athena preset {preset:?}; known modes include p1041 (16ch), p1044 (8ch), p1045 (4ch)"
+            ));
+        }
+        Ok(())
+    }
+
+    async fn run_athena_startup(&self, preset: &str) -> Result<()> {
+        Self::require_athena_preset(preset)?;
+        // Mirrors MuseAthenaClient.start() in muse-jsx.
+        //
+        // Some Athena firmware versions (e.g. Muse S fw 3.x on
+        // Athena_RevE hardware) reject `dc001` (rc:69) but accept the
+        // Classic `d` command.  We send both so that streaming starts
+        // regardless of firmware version.  The device silently ignores
+        // whichever command it does not understand.
+        let delay = |ms| tokio::time::sleep(Duration::from_millis(ms));
+        self.send_command("v4").await?;
+        delay(100).await;
+        self.send_command("s").await?;
+        delay(100).await;
+        self.send_command("h").await?;
+        delay(100).await;
+        self.send_command(preset).await?;
+        delay(100).await;
+        self.send_command("dc001").await?;
+        delay(50).await;
+        self.send_command("dc001").await?;
+        delay(50).await;
+        self.send_command("d").await?;
+        delay(100).await;
+        self.send_command("L1").await?;
+        delay(2100).await;
+        Ok(())
     }
 
     /// Request firmware / hardware info (`v1` command).

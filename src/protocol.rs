@@ -9,8 +9,8 @@ use uuid::Uuid;
 
 /// Primary GATT service UUID advertised by all Muse devices.
 ///
-/// Used as a scan filter to identify Muse headsets among nearby BLE peripherals.
-#[allow(dead_code)]
+/// Every Muse characteristic lives under this service, and it is the service
+/// the Web Bluetooth grant covers — `get_primary_service` refuses any other.
 pub const MUSE_SERVICE_UUID: Uuid = Uuid::from_u128(0x0000fe8d_0000_1000_8000_00805f9b34fb);
 
 // ── Characteristics ───────────────────────────────────────────────────────────
@@ -20,18 +20,15 @@ pub const MUSE_SERVICE_UUID: Uuid = Uuid::from_u128(0x0000fe8d_0000_1000_8000_00
 /// The host writes length-prefixed ASCII commands (e.g. `"d"`, `"h"`, `"p21"`)
 /// and receives JSON status fragments in response notifications.
 /// See [`encode_command`] and [`decode_response`] for the wire format.
-pub const CONTROL_CHARACTERISTIC: Uuid =
-    Uuid::from_u128(0x273e0001_4c4d_454d_96be_f03bac821358);
+pub const CONTROL_CHARACTERISTIC: Uuid = Uuid::from_u128(0x273e0001_4c4d_454d_96be_f03bac821358);
 
 /// Telemetry characteristic (battery level, temperature, fuel-gauge voltage).
 ///
 /// Notified approximately once per second on classic Muse devices.
-pub const TELEMETRY_CHARACTERISTIC: Uuid =
-    Uuid::from_u128(0x273e000b_4c4d_454d_96be_f03bac821358);
+pub const TELEMETRY_CHARACTERISTIC: Uuid = Uuid::from_u128(0x273e000b_4c4d_454d_96be_f03bac821358);
 
 /// Gyroscope characteristic — 3 × XYZ samples per notification at ~52 Hz.
-pub const GYROSCOPE_CHARACTERISTIC: Uuid =
-    Uuid::from_u128(0x273e0009_4c4d_454d_96be_f03bac821358);
+pub const GYROSCOPE_CHARACTERISTIC: Uuid = Uuid::from_u128(0x273e0009_4c4d_454d_96be_f03bac821358);
 
 /// Accelerometer characteristic — 3 × XYZ samples per notification at ~52 Hz.
 pub const ACCELEROMETER_CHARACTERISTIC: Uuid =
@@ -111,6 +108,79 @@ pub const EEG_CHANNEL_NAMES: [&str; 5] = ["TP9", "AF7", "AF8", "TP10", "AUX"];
 /// Optical channel names in [`PPG_CHARACTERISTICS`] index order.
 pub const PPG_CHANNEL_NAMES: [&str; 3] = ["ambient", "infrared", "red"];
 
+/// Athena electrode names, indexed by [`crate::types::EegReading::electrode`].
+///
+/// Athena streams eight channels, and the order is *not* the Classic one with
+/// three appended: index 4 is FPz here and AUX there. So labelling Athena data
+/// with [`EEG_CHANNEL_NAMES`] does not merely run out of names — it prints
+/// "AUX" for FPz, which is a wrong answer that looks like a right one.
+pub const ATHENA_EEG_CHANNEL_NAMES: [&str; 8] =
+    ["TP9", "AF7", "AF8", "TP10", "FPz", "AUX_R", "AUX_L", "AUX"];
+
+/// Optical channel names for Athena's wider modes.
+///
+/// The first three are the sensor's documented roles. Beyond them the physical
+/// mapping is not documented anywhere this crate can cite, so they are named by
+/// index rather than guessed at — the data is real (each channel carries its
+/// own DC level and variation, measured on a Muse S Athena), only its meaning
+/// is unknown.
+pub const ATHENA_PPG_CHANNEL_NAMES: [&str; 16] = [
+    "ambient", "infrared", "red", "opt3", "opt4", "opt5", "opt6", "opt7", "opt8", "opt9", "opt10",
+    "opt11", "opt12", "opt13", "opt14", "opt15",
+];
+
+/// The electrode name for `electrode`, from whichever firmware produced it.
+///
+/// Takes the firmware because the two mappings diverge rather than extend;
+/// [`crate::muse_client::MuseHandle::is_athena`] is what to pass.
+pub fn eeg_channel_name(electrode: usize, is_athena: bool) -> &'static str {
+    let names: &[&'static str] = if is_athena {
+        &ATHENA_EEG_CHANNEL_NAMES
+    } else {
+        &EEG_CHANNEL_NAMES
+    };
+    names.get(electrode).copied().unwrap_or("?")
+}
+
+/// The optical channel name for `channel`, in any mode.
+///
+/// For Classic PPG this is the three [`PPG_CHANNEL_NAMES`]. For Athena lanes
+/// prefer [`optics_channel_name`].
+pub fn ppg_channel_name(channel: usize) -> &'static str {
+    ATHENA_PPG_CHANNEL_NAMES
+        .get(channel)
+        .copied()
+        .unwrap_or("?")
+}
+
+/// Labels for Athena optical lanes (same strings as [`ATHENA_PPG_CHANNEL_NAMES`]).
+///
+/// These are names, not measured wavelengths. Lanes past `red` are numbered
+/// because no source this crate can cite documents their physical mapping.
+pub const OPTICS_CHANNEL_NAMES: [&str; 16] = ATHENA_PPG_CHANNEL_NAMES;
+
+/// The Athena optical lane name for `lane` (`0..15`), or `"?"`.
+pub fn optics_channel_name(lane: usize) -> &'static str {
+    OPTICS_CHANNEL_NAMES.get(lane).copied().unwrap_or("?")
+}
+
+/// Default Athena startup preset: 8-channel EEG + 16-channel optics.
+pub const ATHENA_DEFAULT_PRESET: &str = "p1041";
+
+/// Optical layout selected by a known Athena preset, if this is one.
+///
+/// Measured on a Muse S Athena (fw 3.1.11 / 3.1.19). Presets that share a
+/// row differ in ways not visible from which tags arrive.
+pub fn athena_preset_layout(preset: &str) -> Option<crate::types::OpticsLayout> {
+    use crate::types::OpticsLayout;
+    match preset {
+        "p1029" | "p102A" | "p1035" | "p1036" | "p1045" | "p1046" => Some(OpticsLayout::Ch4),
+        "p1027" | "p1028" | "p1033" | "p1034" | "p1043" | "p1044" => Some(OpticsLayout::Ch8),
+        "p1025" | "p1026" | "p1031" | "p1032" | "p1041" | "p1042" => Some(OpticsLayout::Ch16),
+        _ => None,
+    }
+}
+
 // ── Athena-specific constants ─────────────────────────────────────────────────
 
 /// Number of EEG channels carried in a single Athena EEG notification.
@@ -129,11 +199,21 @@ pub const ATHENA_EEG_CHANNELS: usize = 8;
 /// 12-bit big-endian packing (18 bytes of payload per characteristic).
 pub const ATHENA_EEG_SAMPLES_PER_PKT: usize = 2;
 
-/// Number of optical channels in an Athena PPG notification.
+/// Number of optical channels in Athena's widest *observed* optical mode.
 ///
-/// Channel order: ambient (0), infrared (1), red (2).  A fourth channel is
-/// present in the raw 30-byte payload but currently unused.
-pub const ATHENA_PPG_CHANNELS: usize = 3;
+/// Athena has more than one. Measured on a Muse S Athena (fw 3.1.11) by
+/// switching presets and counting what arrived:
+///
+/// | preset | optical |
+/// |---|---|
+/// | `p1035`, `p1045`, `p1046` | 4 channels (tag `0x34`) |
+/// | `p1034`, `p1043`, `p1044` | 8 channels (tag `0x35`) |
+/// | `p1041`, `p1042` | 16 channels (tag `0x36`) |
+///
+/// `p1041` and `p1042` appeared to carry no optical data at all until `0x36`
+/// was decoded rather than skipped — they carry the most of any preset. Every
+/// channel in every mode holds real signal, which is why none are discarded.
+pub const ATHENA_PPG_CHANNELS: usize = 16;
 
 /// Samples per channel per Athena optical (PPG) notification.
 ///

@@ -10,11 +10,12 @@
 //! | Muse 1 (2014) | Classic | 4 | ✗ | baseline feature set |
 //! | Muse 2 | Classic | 4 + AUX | ✓ | PPG requires `enable_ppg: true` |
 //! | Muse S | Classic | 4 + AUX | ✓ | same protocol as Muse 2 |
-//! | Muse S | **Athena** | **8** | **✓** | auto-detected; PPG always included with preset `p1045` |
+//! | Muse S | **Athena** | **8** | **optics** | auto-detected; default preset `p1041` (16 optical lanes) |
 //!
-//! Athena PPG data is decoded from 20-bit LE packed samples (tag lower nibble
-//! 0x4/0x5) into [`types::PpgReading`] events — 3 samples per channel
-//! (ambient, infrared, red) at 64 Hz.
+//! Athena optical data is decoded from 20-bit LE packed samples (tags
+//! `0x34` / `0x35` / `0x36`) into [`types::OpticsReading`] events — 4, 8 or 16
+//! lanes at 64 Hz, depending on the preset (default `p1041`, 16 lanes).
+//! Classic PPG remains 3 channels (ambient, infrared, red) as [`types::PpgReading`].
 //!
 //! Firmware is detected automatically at connect time — no configuration is
 //! required.  See the [README](https://github.com/eugenehp/muse-rs#firmware-variants-classic-vs-athena)
@@ -101,14 +102,21 @@ pub mod prelude {
 
     // ── Events and data types ─────────────────────────────────────────────────
     pub use crate::types::{
-        ControlResponse, EegReading, EegSample, ImuData, MuseEvent, PpgReading, TelemetryData,
-        XyzSample,
+        ControlResponse, DataGap, DrlRefData, EegReading, EegSample, ImuData, MuseEvent,
+        OpticsLayout, OpticsReading, PpgReading, Sensor, TelemetryData, XyzSample,
     };
 
     // ── Protocol constants ────────────────────────────────────────────────────
     pub use crate::protocol::{
-        ATHENA_PPG_CHANNELS, ATHENA_PPG_FREQUENCY, ATHENA_PPG_SAMPLES_PER_PKT,
+        ATHENA_DEFAULT_PRESET, ATHENA_EEG_CHANNEL_NAMES, ATHENA_PPG_CHANNELS,
+        ATHENA_PPG_CHANNEL_NAMES, ATHENA_PPG_FREQUENCY, ATHENA_PPG_SAMPLES_PER_PKT,
         EEG_CHANNEL_NAMES, EEG_FREQUENCY, EEG_SAMPLES_PER_READING, PPG_CHANNEL_NAMES,
         PPG_FREQUENCY, PPG_SAMPLES_PER_READING,
+    };
+
+    // Prefer these to indexing the tables directly: Classic and Athena
+    // electrode orders diverge at index 4.
+    pub use crate::protocol::{
+        athena_preset_layout, eeg_channel_name, optics_channel_name, ppg_channel_name,
     };
 }

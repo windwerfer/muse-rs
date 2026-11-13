@@ -24,6 +24,7 @@ async fn main() -> Result<()> {
         enable_ppg: true,
         scan_timeout_secs: 15,
         name_prefix: "Muse".into(),
+        ..Default::default()
     };
 
     let enable_ppg = config.enable_ppg;
@@ -146,6 +147,15 @@ async fn main() -> Result<()> {
                 );
             }
 
+            MuseEvent::Optics(reading) => {
+                let ch_name = muse_rs::protocol::optics_channel_name(reading.lane);
+                let first = reading.samples.first().copied().unwrap_or(0);
+                println!(
+                    "[OPTICS] {:?} lane={ch_name:8} idx={:5}  sample[0]={first}",
+                    reading.layout, reading.index
+                );
+            }
+
             // ── Telemetry ─────────────────────────────────────────────────────
             MuseEvent::Telemetry(t) => {
                 println!(
@@ -180,6 +190,19 @@ async fn main() -> Result<()> {
                     println!("[CONTROL] {}", resp.raw);
                 }
             }
+
+            // Athena-only streams added when porting eugenehp 0.2.3 parse.rs.
+            MuseEvent::DrlRef(d) => {
+                println!("[DRL/REF] idx={:5}  samples={}", d.index, d.samples.len());
+            }
+            MuseEvent::Gap(g) => {
+                println!(
+                    "[GAP] {:?}  missing_packets={}  missing_samples={}",
+                    g.sensor, g.missing_packets, g.missing_samples
+                );
+            }
+            // MuseEvent is #[non_exhaustive] (the CLI is a separate crate).
+            _ => {}
         }
     }
 
