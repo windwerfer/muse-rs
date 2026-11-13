@@ -235,6 +235,31 @@ pub const ATHENA_EEG_SCALE: f64 = 0.0885;
 
 // ── Control commands ──────────────────────────────────────────────────────────
 
+/// Maximum command length in bytes that fits in a Muse control frame.
+///
+/// The length prefix is a single `u8` covering the command and the trailing
+/// `\n`, so the command itself may be at most 254 bytes.
+pub const MAX_COMMAND_LEN: usize = 254;
+
+/// A command whose framed payload would not fit in the `u8` length prefix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CommandTooLong {
+    /// Byte length of the command string (not including the trailing newline).
+    pub command_len: usize,
+}
+
+impl std::fmt::Display for CommandTooLong {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "command is {} bytes; the control frame length prefix holds at most {MAX_COMMAND_LEN} bytes of command plus a newline",
+            self.command_len
+        )
+    }
+}
+
+impl std::error::Error for CommandTooLong {}
+
 /// Encode a text command for the Muse control characteristic.
 ///
 /// The Muse expects a length-prefixed frame:
@@ -244,20 +269,28 @@ pub const ATHENA_EEG_SCALE: f64 = 0.0885;
 /// byte N+1   : '\n' terminator
 /// ```
 ///
+/// Returns [`Err`] if `cmd.len()` is greater than [`MAX_COMMAND_LEN`], so a
+/// length byte is never truncated.
+///
 /// This is equivalent to the TypeScript `encodeCommand` in `muse-utils.ts`.
 ///
 /// # Example
 ///
 /// ```
 /// # use muse_rs::protocol::encode_command;
-/// assert_eq!(encode_command("d"), &[0x02, b'd', b'\n']);
+/// assert_eq!(encode_command("d").unwrap(), &[0x02, b'd', b'\n']);
 /// ```
-pub fn encode_command(cmd: &str) -> Vec<u8> {
+pub fn encode_command(cmd: &str) -> Result<Vec<u8>, CommandTooLong> {
+    if cmd.len() > MAX_COMMAND_LEN {
+        return Err(CommandTooLong {
+            command_len: cmd.len(),
+        });
+    }
     // Build "X{cmd}\n", then replace the leading 'X' with (total_len - 1).
     let body = format!("X{cmd}\n");
     let mut bytes = body.into_bytes();
     bytes[0] = (bytes.len() - 1) as u8;
-    bytes
+    Ok(bytes)
 }
 
 /// Decode a raw BLE notification from the control characteristic into a string.

@@ -227,17 +227,18 @@ pub fn parse_ppg_reading(data: &[u8], ppg_channel: usize, timestamp: f64) -> Opt
 ///
 /// The headset splits its JSON status replies across multiple BLE notifications.
 /// Each decoded fragment is a partial string like `{"hn":`, `"Muse-AB12"`, `}`.
-/// This accumulator buffers fragments in order and returns a full JSON string
-/// the moment a closing `}` is observed.
+/// This accumulator buffers fragments in order and returns every complete JSON
+/// object whose closing `}` is observed in that call, so two objects in one
+/// fragment are both returned.
 ///
 /// # Usage
 ///
 /// ```
 /// # use muse_rs::parse::ControlAccumulator;
 /// let mut acc = ControlAccumulator::new();
-/// assert!(acc.push(r#"{"fw":"3.4."#).is_none());   // incomplete
-/// let json = acc.push(r#"5"}"#).unwrap();           // closed → returns full JSON
-/// assert_eq!(json, r#"{"fw":"3.4.5"}"#);
+/// assert!(acc.push(r#"{"fw":"3.4."#).is_empty());  // incomplete
+/// let json = acc.push(r#"5"}"#);                    // closed → returns full JSON
+/// assert_eq!(json, vec![r#"{"fw":"3.4.5"}"#]);
 /// ```
 ///
 /// Nested braces are tracked correctly, and characters before the first `{`
@@ -260,14 +261,16 @@ impl ControlAccumulator {
 
     /// Append a decoded fragment to the internal buffer.
     ///
-    /// Returns the complete JSON string when the top-level closing `}` is
-    /// encountered (depth returns to 0), otherwise returns `None`.
-    /// The buffer is cleared after a complete object is returned.
+    /// Returns every complete JSON object whose top-level closing `}` is
+    /// encountered in this fragment (depth returns to 0). Incomplete trailing
+    /// input stays buffered for the next call. The returned vector is empty
+    /// when no object closed in this fragment.
     ///
     /// Characters received before the first `{` are silently discarded so
     /// that stale trailing data from a previous notification cannot corrupt
     /// the next object.
-    pub fn push(&mut self, fragment: &str) -> Option<String> {
+    pub fn push(&mut self, fragment: &str) -> Vec<String> {
+        let mut complete = Vec::new();
         for ch in fragment.chars() {
             if ch == '{' {
                 if self.depth == 0 {
@@ -282,9 +285,7 @@ impl ControlAccumulator {
                     self.buffer.push(ch);
                     self.depth -= 1;
                     if self.depth == 0 {
-                        let json = self.buffer.clone();
-                        self.buffer.clear();
-                        return Some(json);
+                        complete.push(std::mem::take(&mut self.buffer));
                     }
                 }
                 // else: stray '}' before any '{' — ignore
@@ -295,7 +296,7 @@ impl ControlAccumulator {
                 }
             }
         }
-        None
+        complete
     }
 }
 

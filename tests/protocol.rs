@@ -2,27 +2,46 @@
 
 use muse_rs::protocol::{
     athena_preset_layout, decode_response, eeg_channel_name, encode_command, optics_channel_name,
-    ppg_channel_name, ACCELEROMETER_CHARACTERISTIC, ATHENA_DEFAULT_PRESET, ATHENA_EEG_CHANNELS,
-    ATHENA_EEG_CHANNEL_NAMES, ATHENA_EEG_SAMPLES_PER_PKT, ATHENA_EEG_SCALE, ATHENA_PPG_CHANNELS,
-    ATHENA_PPG_CHANNEL_NAMES, ATHENA_PPG_FREQUENCY, ATHENA_SENSOR_CHARACTERISTIC,
-    CONTROL_CHARACTERISTIC, EEG_CHANNEL_NAMES, EEG_CHARACTERISTICS, EEG_FREQUENCY,
-    EEG_SAMPLES_PER_READING, GYROSCOPE_CHARACTERISTIC, MUSE_SERVICE_UUID, OPTICS_CHANNEL_NAMES,
-    PPG_CHANNEL_NAMES, PPG_CHARACTERISTICS, PPG_FREQUENCY, PPG_SAMPLES_PER_READING,
-    TELEMETRY_CHARACTERISTIC,
+    ppg_channel_name, CommandTooLong, ACCELEROMETER_CHARACTERISTIC, ATHENA_DEFAULT_PRESET,
+    ATHENA_EEG_CHANNELS, ATHENA_EEG_CHANNEL_NAMES, ATHENA_EEG_SAMPLES_PER_PKT, ATHENA_EEG_SCALE,
+    ATHENA_PPG_CHANNELS, ATHENA_PPG_CHANNEL_NAMES, ATHENA_PPG_FREQUENCY,
+    ATHENA_SENSOR_CHARACTERISTIC, CONTROL_CHARACTERISTIC, EEG_CHANNEL_NAMES, EEG_CHARACTERISTICS,
+    EEG_FREQUENCY, EEG_SAMPLES_PER_READING, GYROSCOPE_CHARACTERISTIC, MAX_COMMAND_LEN,
+    MUSE_SERVICE_UUID, OPTICS_CHANNEL_NAMES, PPG_CHANNEL_NAMES, PPG_CHARACTERISTICS, PPG_FREQUENCY,
+    PPG_SAMPLES_PER_READING, TELEMETRY_CHARACTERISTIC,
 };
 use muse_rs::types::OpticsLayout;
 use uuid::Uuid;
 
 #[test]
 fn encode_command_uses_length_prefix_and_newline() {
-    assert_eq!(encode_command("d"), vec![0x02, b'd', b'\n']);
-    assert_eq!(encode_command("h"), vec![0x02, b'h', b'\n']);
-    assert_eq!(encode_command("p21"), vec![0x04, b'p', b'2', b'1', b'\n']);
-    assert_eq!(encode_command(""), vec![0x01, b'\n']);
+    assert_eq!(encode_command("d").unwrap(), vec![0x02, b'd', b'\n']);
+    assert_eq!(encode_command("h").unwrap(), vec![0x02, b'h', b'\n']);
+    assert_eq!(
+        encode_command("p21").unwrap(),
+        vec![0x04, b'p', b'2', b'1', b'\n']
+    );
+    assert_eq!(encode_command("").unwrap(), vec![0x01, b'\n']);
     let long = "v1";
-    let bytes = encode_command(long);
+    let bytes = encode_command(long).unwrap();
     assert_eq!(bytes[0] as usize, long.len() + 1);
     assert_eq!(&bytes[1..], b"v1\n");
+}
+
+#[test]
+fn encode_command_rejects_a_payload_that_cannot_fit_the_length_byte() {
+    let max = "x".repeat(MAX_COMMAND_LEN);
+    let framed = encode_command(&max).expect("254-byte command must fit");
+    assert_eq!(framed[0] as usize, MAX_COMMAND_LEN + 1);
+    assert_eq!(framed.len(), MAX_COMMAND_LEN + 2); // length byte + cmd + newline
+
+    let too_long = "x".repeat(MAX_COMMAND_LEN + 1);
+    assert_eq!(
+        encode_command(&too_long),
+        Err(CommandTooLong {
+            command_len: MAX_COMMAND_LEN + 1
+        })
+    );
 }
 
 #[test]
@@ -48,7 +67,7 @@ fn decode_response_is_lossy_for_invalid_utf8() {
 #[test]
 fn encode_then_decode_roundtrips_the_command_body() {
     for cmd in ["d", "h", "s", "v1", "p21", "p50", "p1041", "p1045"] {
-        let framed = encode_command(cmd);
+        let framed = encode_command(cmd).unwrap();
         assert_eq!(decode_response(&framed), format!("{cmd}\n"));
     }
 }

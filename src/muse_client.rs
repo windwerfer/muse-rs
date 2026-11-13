@@ -505,7 +505,7 @@ impl MuseClient {
                     if notif.uuid == CONTROL_CHARACTERISTIC {
                         let fragment = decode_response(data);
                         debug!("Athena control fragment: {:?}", fragment);
-                        if let Some(json_str) = ctrl_acc.push(&fragment) {
+                        for json_str in ctrl_acc.push(&fragment) {
                             match serde_json::from_str::<serde_json::Value>(&json_str) {
                                 Ok(serde_json::Value::Object(map)) => {
                                     let _ = tx
@@ -642,7 +642,7 @@ impl MuseClient {
                     if uuid == CONTROL_CHARACTERISTIC {
                         let fragment = decode_response(data);
                         debug!("Control fragment: {:?}", fragment);
-                        if let Some(json_str) = ctrl_acc.push(&fragment) {
+                        for json_str in ctrl_acc.push(&fragment) {
                             match serde_json::from_str::<serde_json::Value>(&json_str) {
                                 Ok(serde_json::Value::Object(map)) => {
                                     let _ = tx
@@ -799,7 +799,7 @@ pub struct MuseHandle {
 impl MuseHandle {
     /// Send a raw command string (e.g. `"h"`, `"d"`, `"p21"`).
     pub async fn send_command(&self, cmd: &str) -> Result<()> {
-        let payload = encode_command(cmd);
+        let payload = encode_command(cmd)?;
         self.peripheral
             .write(&self.control_char, &payload, WriteType::WithoutResponse)
             .await?;

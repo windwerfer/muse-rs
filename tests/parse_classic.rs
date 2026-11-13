@@ -251,44 +251,42 @@ fn parse_imu_rejects_payloads_shorter_than_20_bytes() {
 #[test]
 fn control_accumulator_assembles_split_json() {
     let mut acc = ControlAccumulator::new();
-    assert!(acc.push(r#"{"fw":"3.4."#).is_none());
-    let json = acc.push(r#"5"}"#).expect("closed json");
-    assert_eq!(json, r#"{"fw":"3.4.5"}"#);
+    assert!(acc.push(r#"{"fw":"3.4."#).is_empty());
+    let json = acc.push(r#"5"}"#);
+    assert_eq!(json, vec![r#"{"fw":"3.4.5"}"#]);
     // Buffer is cleared; a new object can start immediately.
-    assert!(acc.push(r#"{"hn":"#).is_none());
-    assert_eq!(acc.push(r#""Muse"}"#).unwrap(), r#"{"hn":"Muse"}"#);
+    assert!(acc.push(r#"{"hn":"#).is_empty());
+    assert_eq!(acc.push(r#""Muse"}"#), vec![r#"{"hn":"Muse"}"#]);
 }
 
 #[test]
 fn control_accumulator_tracks_nested_braces_and_default_matches_new() {
     let mut acc = ControlAccumulator::default();
-    assert!(acc.push(r#"{"a":{"b":1}"#).is_none());
-    assert_eq!(acc.push("}").unwrap(), r#"{"a":{"b":1}}"#);
+    assert!(acc.push(r#"{"a":{"b":1}"#).is_empty());
+    assert_eq!(acc.push("}"), vec![r#"{"a":{"b":1}}"#]);
 }
 
 #[test]
 fn control_accumulator_discards_garbage_before_and_stray_braces() {
     let mut acc = ControlAccumulator::new();
-    assert!(acc.push("noise}also").is_none());
-    assert_eq!(acc.push(r#"{"ok":true}"#).unwrap(), r#"{"ok":true}"#);
+    assert!(acc.push("noise}also").is_empty());
+    assert_eq!(acc.push(r#"{"ok":true}"#), vec![r#"{"ok":true}"#]);
 }
 
 #[test]
 fn control_accumulator_keeps_unicode_payloads() {
     let mut acc = ControlAccumulator::new();
     assert_eq!(
-        acc.push(r#"{"hn":"Müse-ÄB12"}"#).unwrap(),
-        r#"{"hn":"Müse-ÄB12"}"#
+        acc.push(r#"{"hn":"Müse-ÄB12"}"#),
+        vec![r#"{"hn":"Müse-ÄB12"}"#]
     );
 }
 
 #[test]
-fn control_accumulator_returns_first_object_when_two_share_a_fragment() {
-    // Current behaviour: once depth returns to 0, remaining characters in the
-    // same push() call are not buffered. A later object in that fragment is
-    // therefore dropped. The headset is not known to emit two objects in one
-    // notification, but the edge case is recorded here.
+fn control_accumulator_extracts_all_complete_objects_in_a_fragment() {
     let mut acc = ControlAccumulator::new();
-    assert_eq!(acc.push(r#"{"a":1}{"b":2}"#).unwrap(), r#"{"a":1}"#);
-    assert!(acc.push("").is_none());
+    // Two complete objects plus the start of a third, all in one fragment.
+    let got = acc.push(r#"{"a":1}{"b":2}{"c":"#);
+    assert_eq!(got, vec![r#"{"a":1}"#, r#"{"b":2}"#]);
+    assert_eq!(acc.push(r#"3}"#), vec![r#"{"c":3}"#]);
 }
