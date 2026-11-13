@@ -1,5 +1,7 @@
 # muse-rs
 
+[![Scanned by SonarCloud](https://img.shields.io/badge/Scanned_by-SonarCloud-4b9fd5?style=flat-square&logo=sonarqubecloud&logoColor=white)](https://sonarcloud.io/project/overview?id=windwerfer_muse-rs) [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=windwerfer_muse-rs&metric=alert_status)](https://sonarcloud.io/project/overview?id=windwerfer_muse-rs) [![CodeQL](https://github.com/windwerfer/muse-rs/actions/workflows/codeql.yml/badge.svg)](https://github.com/windwerfer/muse-rs/actions/workflows/codeql.yml)
+
 A Rust library and terminal UI for streaming real-time sensor data from
 **Interaxon Muse EEG headsets** over Bluetooth Low Energy.
 
@@ -609,6 +611,20 @@ If you use `muse-rs` in academic research or published work, please cite it as:
 ### IEEE
 
 > E. Hauptmann, "muse-rs: Rust Library and TUI for Muse EEG Headsets," 2026. [Online]. Available: https://github.com/eugenehp/muse-rs
+
+## Security
+
+[SonarQube Cloud](https://sonarcloud.io/project/overview?id=windwerfer_muse-rs) CI analysis (`.github/workflows/sonarcloud.yml`) runs on every push to `main` and on pull requests,
+with Clippy and coverage imported (bugs, vulnerabilities, code smells, security hotspots). The free plan analyzes no other
+branches, and only pull requests that target `main`.
+
+[GitHub CodeQL](https://codeql.github.com/) code scanning (`.github/workflows/codeql.yml`) runs as a second, separate check
+on every push to `main`, on pull requests that target `main`, and weekly. It analyzes the Rust code and the GitHub Actions
+workflows; results are in the repo's **Security › Code scanning** tab.
+
+Both are static analysis, not a guarantee that the code is free of security issues.
+
+Please report vulnerabilities privately by email to windwerfer@gmail.com, not in public issues.
 
 ---
 
