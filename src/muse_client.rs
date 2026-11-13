@@ -965,3 +965,108 @@ impl MuseHandle {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::{
+        ATHENA_DEFAULT_PRESET, EEG_FREQUENCY, EEG_SAMPLES_PER_READING, PPG_FREQUENCY,
+        PPG_SAMPLES_PER_READING,
+    };
+
+    fn reading_delta(samples_per_reading: usize, frequency: f64) -> f64 {
+        1000.0 * (1.0 / frequency) * samples_per_reading as f64
+    }
+
+    fn assert_close(got: f64, expected: f64) {
+        let tol = 1e-6_f64.max(expected.abs() * 1e-9);
+        assert!(
+            (got - expected).abs() <= tol,
+            "f64 {got} != {expected} (tol {tol})"
+        );
+    }
+
+    #[test]
+    fn timestamp_first_packet_is_one_window_behind_now() {
+        let mut t = TimestampTracker::new();
+        let delta = reading_delta(EEG_SAMPLES_PER_READING, EEG_FREQUENCY);
+        let before = now_ms();
+        let ts = t.get(10, EEG_SAMPLES_PER_READING, EEG_FREQUENCY);
+        let after = now_ms();
+        assert!(
+            ts >= before - delta - 1.0 && ts <= after - delta + 1.0,
+            "first timestamp {ts} not in [{}, {}]",
+            before - delta,
+            after - delta
+        );
+        assert_eq!(delta, 46.875);
+    }
+
+    #[test]
+    fn timestamp_duplicate_index_returns_the_anchor() {
+        let mut t = TimestampTracker::new();
+        let a = t.get(3, EEG_SAMPLES_PER_READING, EEG_FREQUENCY);
+        let b = t.get(3, EEG_SAMPLES_PER_READING, EEG_FREQUENCY);
+        assert_close(a, b);
+    }
+
+    #[test]
+    fn timestamp_forward_progress_uses_index_delta() {
+        let mut t = TimestampTracker::new();
+        let delta = reading_delta(EEG_SAMPLES_PER_READING, EEG_FREQUENCY);
+        let first = t.get(0, EEG_SAMPLES_PER_READING, EEG_FREQUENCY);
+        let later = t.get(4, EEG_SAMPLES_PER_READING, EEG_FREQUENCY);
+        assert_close(later, first + 4.0 * delta);
+    }
+
+    #[test]
+    fn timestamp_late_packet_is_backdated_without_moving_the_anchor() {
+        let mut t = TimestampTracker::new();
+        let delta = reading_delta(EEG_SAMPLES_PER_READING, EEG_FREQUENCY);
+        let first = t.get(10, EEG_SAMPLES_PER_READING, EEG_FREQUENCY);
+        let late = t.get(8, EEG_SAMPLES_PER_READING, EEG_FREQUENCY);
+        assert_close(late, first - 2.0 * delta);
+        let next = t.get(11, EEG_SAMPLES_PER_READING, EEG_FREQUENCY);
+        assert_close(next, first + delta);
+    }
+
+    #[test]
+    fn timestamp_handles_16bit_wrap() {
+        let mut t = TimestampTracker::new();
+        let delta = reading_delta(PPG_SAMPLES_PER_READING, PPG_FREQUENCY);
+        assert_eq!(delta, 93.75);
+        let last = t.get(0xFFFF, PPG_SAMPLES_PER_READING, PPG_FREQUENCY);
+        let wrapped = t.get(0, PPG_SAMPLES_PER_READING, PPG_FREQUENCY);
+        assert_close(wrapped, last + delta);
+    }
+
+    #[test]
+    fn timestamp_reset_reanchors_to_the_clock() {
+        let mut t = TimestampTracker::new();
+        let delta = reading_delta(EEG_SAMPLES_PER_READING, EEG_FREQUENCY);
+        let first = t.get(0, EEG_SAMPLES_PER_READING, EEG_FREQUENCY);
+        let _ = t.get(20, EEG_SAMPLES_PER_READING, EEG_FREQUENCY);
+        t.reset();
+        let after = t.get(0, EEG_SAMPLES_PER_READING, EEG_FREQUENCY);
+        assert!(
+            (after - first).abs() < 5.0 * delta,
+            "reset timestamp {after} drifted too far from first {first}"
+        );
+        let continued = first + 20.0 * delta;
+        assert!(
+            (after - continued).abs() > 10.0 * delta,
+            "reset appeared to keep the old anchor"
+        );
+    }
+
+    #[test]
+    fn client_config_defaults() {
+        let cfg = MuseClientConfig::default();
+        assert!(!cfg.enable_aux);
+        assert!(!cfg.enable_ppg);
+        assert_eq!(cfg.athena_preset, ATHENA_DEFAULT_PRESET);
+        assert_eq!(cfg.scan_timeout_secs, 15);
+        assert_eq!(cfg.name_prefix, "Muse");
+        let _ = MuseClient::new(cfg);
+    }
+}

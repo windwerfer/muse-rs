@@ -158,7 +158,7 @@ pub struct TelemetryData {
     /// battery subpacket counter on Athena.
     pub sequence_id: u16,
     /// Battery state-of-charge in percent (0–100).
-    /// Derived from the raw fuel-gauge reading divided by 512.
+    /// Classic: raw u16 ÷ 512. Athena: raw u16 ÷ 256, then clamped to 0–100.
     pub battery_level: f32,
     /// Fuel-gauge terminal voltage in millivolts (Classic only).
     /// Raw reading multiplied by 2.2.  Always `0.0` for Athena.

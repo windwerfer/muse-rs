@@ -13,8 +13,8 @@ fn main() {
     // Note: `CARGO_CFG_TARGET_OS` reflects the *target* (not the host),
     // so cross-compilation from Linux → macOS is handled correctly too.
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
-        let dir = std::env::var("CARGO_MANIFEST_DIR")
-            .expect("CARGO_MANIFEST_DIR must be set by Cargo");
+        let dir =
+            std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR must be set by Cargo");
 
         let plist = format!("{dir}/Info.plist");
 

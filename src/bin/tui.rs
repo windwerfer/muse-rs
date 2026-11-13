@@ -102,10 +102,10 @@ const COLORS: [Color; 4] = [Color::Cyan, Color::Yellow, Color::Green, Color::Mag
 
 /// Dimmed versions of COLORS used for the raw background trace when smooth is on.
 const DIM_COLORS: [Color; 4] = [
-    Color::Rgb(0, 90, 110),   // dim cyan
-    Color::Rgb(110, 90, 0),   // dim yellow
-    Color::Rgb(0, 110, 0),    // dim green
-    Color::Rgb(110, 0, 110),  // dim magenta
+    Color::Rgb(0, 90, 110),  // dim cyan
+    Color::Rgb(110, 90, 0),  // dim yellow
+    Color::Rgb(0, 110, 0),   // dim green
+    Color::Rgb(110, 0, 110), // dim magenta
 ];
 
 /// Moving-average window in samples. 9 samples ≈ 35 ms at 256 Hz.
@@ -480,15 +480,24 @@ fn start_scan(config: MuseClientConfig) -> oneshot::Receiver<ScanResult> {
         {
             Ok(Ok(devices)) => {
                 log::info!("Scan completed: {} device(s) found", devices.len());
-                ScanResult { devices, error: None }
+                ScanResult {
+                    devices,
+                    error: None,
+                }
             }
             Ok(Err(e)) => {
                 log::error!("Scan failed: {e}");
-                ScanResult { devices: vec![], error: Some(format!("{e}")) }
+                ScanResult {
+                    devices: vec![],
+                    error: Some(format!("{e}")),
+                }
             }
             Err(_) => {
                 log::error!("Scan timed out after {deadline:?}");
-                ScanResult { devices: vec![], error: Some("scan timed out".into()) }
+                ScanResult {
+                    devices: vec![],
+                    error: Some("scan timed out".into()),
+                }
             }
         };
         let _ = tx.send(result);
@@ -515,7 +524,7 @@ fn restart_scan(
         let mut s = app.lock().unwrap();
         s.clear();
         s.picker_connected_idx = None;
-        s.picker_entries.clear();   // remove stale device from the list immediately
+        s.picker_entries.clear(); // remove stale device from the list immediately
         s.show_picker = false;
         s.mode = AppMode::Scanning;
         s.picker_scanning = true;
@@ -687,9 +696,7 @@ fn draw_header(frame: &mut Frame, area: Rect, app: &App) {
             format!("{} Connecting to {}…", spinner_str(), name),
             Color::Yellow,
         ),
-        AppMode::Connected { name, id } => {
-            (format!("● {}  [{}]", name, id), Color::Green)
-        }
+        AppMode::Connected { name, id } => (format!("● {}  [{}]", name, id), Color::Green),
         AppMode::Simulated => ("◆ Simulated".to_owned(), Color::Cyan),
         AppMode::NoDevices => (
             format!("{} No devices found — retrying…", spinner_str()),
@@ -727,10 +734,15 @@ fn draw_header(frame: &mut Frame, area: Rect, app: &App) {
     let line = Line::from(vec![
         Span::styled(
             " MUSE EEG Monitor ",
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
         ),
         sep(),
-        Span::styled(label, Style::default().fg(color).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            label,
+            Style::default().fg(color).add_modifier(Modifier::BOLD),
+        ),
         sep(),
         Span::styled(
             view_label,
@@ -846,9 +858,9 @@ fn draw_ppg_channel(frame: &mut Frame, area: Rect, ch: usize, app: &App) {
     };
 
     let dim_color = match ch {
-        0 => Color::Rgb(0, 60, 90),   // dim light-blue
-        1 => Color::Rgb(90, 40, 40),  // dim light-red
-        _ => Color::Rgb(90, 0, 0),    // dim red
+        0 => Color::Rgb(0, 60, 90),  // dim light-blue
+        1 => Color::Rgb(90, 40, 40), // dim light-red
+        _ => Color::Rgb(90, 0, 0),   // dim red
     };
 
     let datasets: Vec<Dataset> = if app.smooth {
@@ -873,9 +885,7 @@ fn draw_ppg_channel(frame: &mut Frame, area: Rect, ch: usize, app: &App) {
     };
 
     let smooth_tag = if app.smooth { " [SMOOTH]" } else { "" };
-    let title = format!(
-        " {name}  min:{min_v:.0}  max:{max_v:.0}{smooth_tag} "
-    );
+    let title = format!(" {name}  min:{min_v:.0}  max:{max_v:.0}{smooth_tag} ");
 
     let y_mid = (min_v + max_v) / 2.0;
     let y_labels: Vec<String> = vec![
@@ -1146,7 +1156,11 @@ fn draw_device_picker(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(Clear, popup);
 
     let title = if app.picker_scanning {
-        format!(" {} Scanning…  ({} found) ", spinner_str(), app.picker_entries.len())
+        format!(
+            " {} Scanning…  ({} found) ",
+            spinner_str(),
+            app.picker_entries.len()
+        )
     } else {
         format!(" Select Device  ({} found) ", app.picker_entries.len())
     };
@@ -1155,7 +1169,9 @@ fn draw_device_picker(frame: &mut Frame, area: Rect, app: &App) {
         Block::default()
             .title(Span::styled(
                 title,
-                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
             ))
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::White)),
@@ -1327,9 +1343,7 @@ async fn main() -> Result<()> {
                 }
 
                 if devices.is_empty() {
-                    retry_at = Some(
-                        tokio::time::Instant::now() + Duration::from_secs(RETRY_SECS),
-                    );
+                    retry_at = Some(tokio::time::Instant::now() + Duration::from_secs(RETRY_SECS));
                 } else if handle.is_none() && pending_connect.is_none() {
                     // Auto-connect to the first device — non-blocking.
                     pending_connect = Some(start_connect(
@@ -1363,7 +1377,7 @@ async fn main() -> Result<()> {
                 } else {
                     // Connection attempt failed — wipe state and restart scanning.
                     connected_idx = None;
-                    devices.clear();    // remove stale device entries from local list
+                    devices.clear(); // remove stale device entries from local list
                     restart_scan(&app, &mut pending_scan, &mut retry_at, RECONNECT_DELAY_SECS);
                 }
             }
@@ -1372,15 +1386,16 @@ async fn main() -> Result<()> {
         // ── 2. Detect unexpected disconnection ───────────────────────────────
         //    The event task sets mode = Disconnected; we react here.
         {
-            let is_disconnected =
-                matches!(app.lock().unwrap().mode, AppMode::Disconnected);
+            let is_disconnected = matches!(app.lock().unwrap().mode, AppMode::Disconnected);
             if is_disconnected && handle.is_some() {
                 // Drop the dead handle; best-effort remote disconnect in background.
                 if let Some(h) = handle.take() {
-                    tokio::spawn(async move { let _ = h.disconnect().await; });
+                    tokio::spawn(async move {
+                        let _ = h.disconnect().await;
+                    });
                 }
                 connected_idx = None;
-                devices.clear();    // remove stale device entries from local list
+                devices.clear(); // remove stale device entries from local list
                 restart_scan(&app, &mut pending_scan, &mut retry_at, RECONNECT_DELAY_SECS);
             }
         }
@@ -1413,8 +1428,8 @@ async fn main() -> Result<()> {
         // In raw mode Ctrl+C is not SIGINT; it arrives as a key event and must
         // be handled explicitly.  Without this check the app is impossible to
         // exit while the picker is open.
-        let ctrl_c = key.modifiers.contains(KeyModifiers::CONTROL)
-            && key.code == KeyCode::Char('c');
+        let ctrl_c =
+            key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c');
         if key.code == KeyCode::Char('q') || ctrl_c {
             break 'main;
         }
@@ -1457,7 +1472,9 @@ async fn main() -> Result<()> {
                         retry_at = None;
                         // Disconnect old handle in the background.
                         if let Some(h) = handle.take() {
-                            tokio::spawn(async move { let _ = h.disconnect().await; });
+                            tokio::spawn(async move {
+                                let _ = h.disconnect().await;
+                            });
                         }
                         connected_idx = None;
                         pending_connect = Some(start_connect(
@@ -1500,7 +1517,9 @@ async fn main() -> Result<()> {
             KeyCode::Char('d') => {
                 if let Some(h) = handle.take() {
                     // Fire-and-forget: never block the main loop on a BLE call.
-                    tokio::spawn(async move { let _ = h.disconnect().await; });
+                    tokio::spawn(async move {
+                        let _ = h.disconnect().await;
+                    });
                 }
                 pending_connect = None;
                 connected_idx = None;
@@ -1543,13 +1562,17 @@ async fn main() -> Result<()> {
             KeyCode::Char('p') => {
                 app.lock().unwrap().paused = true;
                 if let Some(h) = handle.clone() {
-                    tokio::spawn(async move { let _ = h.pause().await; });
+                    tokio::spawn(async move {
+                        let _ = h.pause().await;
+                    });
                 }
             }
             KeyCode::Char('r') => {
                 app.lock().unwrap().paused = false;
                 if let Some(h) = handle.clone() {
-                    tokio::spawn(async move { let _ = h.resume().await; });
+                    tokio::spawn(async move {
+                        let _ = h.resume().await;
+                    });
                 }
             }
 
